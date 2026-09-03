@@ -1,0 +1,32 @@
+spring:
+  application:
+    name: material-identity
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/nmm}
+    username: ${SPRING_DATASOURCE_USERNAME:nmm}
+    password: ${SPRING_DATASOURCE_PASSWORD:nmm_password}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+    open-in-view: true
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:sih-nmm-super-secret-key-change-me-in-production-2026}
+    expiration-ms: 86400000
+
+ai:
+  service:
+    url: ${AI_SERVICE_URL:http://localhost:8000}
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
