@@ -1,4 +1,4 @@
-const API_BASE = "/api";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "https://sih-26099-prototype.onrender.com/api";
 
 let token: string | null = localStorage.getItem("token");
 
