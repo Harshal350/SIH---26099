@@ -1,0 +1,64 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: nmm_db
+    environment:
+      POSTGRES_USER: nmm
+      POSTGRES_PASSWORD: nmm_password
+      POSTGRES_DB: nmm
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nmm -d nmm"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  ai-service:
+    build: ./ai-service
+    container_name: nmm_ai
+    environment:
+      DATABASE_URL: postgresql://nmm:nmm_password@db:5432/nmm
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+
+  backend:
+    build: ./backend
+    container_name: nmm_backend
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/nmm
+      SPRING_DATASOURCE_USERNAME: nmm
+      SPRING_DATASOURCE_PASSWORD: nmm_password
+      AI_SERVICE_URL: http://ai-service:8000
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+
+  frontend:
+    build: ./frontend
+    container_name: nmm_frontend
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"
+
+volumes:
+  pgdata:
