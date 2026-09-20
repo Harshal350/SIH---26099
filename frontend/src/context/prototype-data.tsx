@@ -314,28 +314,143 @@ function ils(a: number, b: number) {
   return a + Math.round(Math.random() * (b - a));
 }
 
+export const NATIONAL_CODE_PREFIX = "NMC";
+
+export function getCategoryCode(category = "", desc = ""): string {
+  const c = (category || "").toUpperCase();
+  const d = (desc || "").toUpperCase();
+
+  if (/BOLT|FASTENER|NUT|SCREW|STUD|WASHER/.test(d) || /FASTENER|BOLT/.test(c)) return "BOLT";
+  if (/VALVE/.test(d) || /VALVE/.test(c)) return "VALVE";
+  if (/CABLE|WIRE|CONDUCTOR/.test(d)) return "CABLE";
+  if (/MCB|CIRCUIT BREAKER|SWITCHGEAR/.test(d)) return "MCB";
+  if (/ELECTRICAL/.test(c)) return "ELEC";
+  if (/PUMP/.test(d) || /PUMP/.test(c)) return "PUMP";
+  if (/GASKET|O-RING|SEAL/.test(d) || /GASKET/.test(c)) return "GASKET";
+  if (/BELT|CONVEYOR/.test(d)) return "BELT";
+  if (/PIPE|TUBING|FLANGE|FITTING/.test(d) || /PIPE|PIPING/.test(c)) return "PIPE";
+  if (/MOTOR/.test(d) || /MOTOR/.test(c)) return "MOTOR";
+  if (/GAUGE|PRESSURE|TRANSMITTER|METER/.test(d) || /INSTRUMENT/.test(c)) return "GAUGE";
+  if (/DRILL|BIT|CUTTER/.test(d) || /TOOL/.test(c)) return "DRILL";
+  if (/ELECTRODE|WELDING/.test(d) || /WELD/.test(c)) return "WELD";
+  if (/EXTINGUISHER|RESPIRATOR|SAFETY|MASK/.test(d) || /SAFETY/.test(c)) return "SAFETY";
+  if (/GAS|CYLINDER|OXYGEN|ACETYLENE/.test(d)) return "GAS";
+  if (/HYPOCHLORITE|HEXAMINE|ACID|SOLVENT/.test(d) || /CHEM/.test(c)) return "CHEM";
+  if (/STEEL|VARNISH|SHEET|PLATE|IRON/.test(d) || /RAW_MATERIAL/.test(c)) return "STEEL";
+
+  const clean = c.replace(/[^A-Z0-9]/g, "");
+  return clean ? clean.slice(0, 6) : "GEN";
+}
+
+export const LEGACY_NMC_MAP: Record<string, string> = {
+  "NMC-000001": "NMC-VALVE-000001",
+  "NMC-000002": "NMC-CABLE-000002",
+  "NMC-000003": "NMC-BOLT-000003",
+  "NMC-000004": "NMC-PUMP-000004",
+  "NMC-000005": "NMC-VALVE-000005",
+  "NMC-000006": "NMC-GASKET-000006",
+  "NMC-000007": "NMC-PIPE-000007",
+  "NMC-000008": "NMC-MOTOR-000008",
+  "NMC-000009": "NMC-GAUGE-000009",
+  "NMC-000010": "NMC-DRILL-000010",
+  "NMC-000011": "NMC-WELD-000011",
+  "NMC-000012": "NMC-SAFETY-000012",
+  "NMC-000013": "NMC-MCB-000013",
+  "NMC-000014": "NMC-CHEM-000014",
+  "NMC-000015": "NMC-GAS-000015",
+  "NMC-000016": "NMC-CHEM-000016",
+  "NMC-000017": "NMC-BELT-000017",
+  "NMC-000018": "NMC-PUMP-000018",
+  "NMC-000019": "NMC-SAFETY-000019",
+  "NMC-000020": "NMC-STEEL-000020",
+};
+
+export function normalizeNmcCode(code?: string, desc = "", category = ""): string | undefined {
+  if (!code) return code;
+  if (LEGACY_NMC_MAP[code]) return LEGACY_NMC_MAP[code];
+  if (/^[A-Z]{3}-[A-Z0-9]+-\d+$/i.test(code)) return code.toUpperCase();
+  const oldMatch = code.match(/^NMC-(\d+)$/i);
+  if (oldMatch) {
+    const num = oldMatch[1].padStart(6, "0");
+    const tag = getCategoryCode(category, desc);
+    return `${NATIONAL_CODE_PREFIX}-${tag}-${num}`;
+  }
+  return code;
+}
+
+export function migrateLegacyStorage() {
+  if (typeof window === "undefined") return;
+  try {
+    const matStr = localStorage.getItem("nmm_materials");
+    if (matStr && matStr.includes("NMC-0000")) {
+      const mats = JSON.parse(matStr);
+      if (Array.isArray(mats)) {
+        const updated = mats.map((m: SourceMaterial) => ({
+          ...m,
+          nmcCode: normalizeNmcCode(m.nmcCode, m.normalizedDescription || m.originalDescription, m.category),
+        }));
+        localStorage.setItem("nmm_materials", JSON.stringify(updated));
+      }
+    }
+
+    const mapStr = localStorage.getItem("nmm_mappings");
+    if (mapStr && mapStr.includes("NMC-0000")) {
+      const maps = JSON.parse(mapStr);
+      if (Array.isArray(maps)) {
+        const updated = maps.map((m: Mapping) => {
+          const newCode = normalizeNmcCode(m.nationalCode, m.nationalDesc || m.normalizedDescription, "");
+          return {
+            ...m,
+            nationalCode: newCode || m.nationalCode,
+            nationalDesc: (newCode && nmcCodesById[newCode]) ? nmcCodesById[newCode] : m.nationalDesc,
+          };
+        });
+        localStorage.setItem("nmm_mappings", JSON.stringify(updated));
+      }
+    }
+
+    const revStr = localStorage.getItem("nmm_reviews");
+    if (revStr && revStr.includes("NMC-0000")) {
+      const revs = JSON.parse(revStr);
+      if (Array.isArray(revs)) {
+        const updated = revs.map((r: ReviewItem) => {
+          const newCode = normalizeNmcCode(r.suggestedNmc, r.suggestedDesc, r.category);
+          return {
+            ...r,
+            suggestedNmc: newCode || r.suggestedNmc,
+            suggestedDesc: (newCode && nmcCodesById[newCode]) ? nmcCodesById[newCode] : r.suggestedDesc,
+          };
+        });
+        localStorage.setItem("nmm_reviews", JSON.stringify(updated));
+      }
+    }
+  } catch (e) {
+    console.warn("Storage migration error", e);
+  }
+}
+
 function seedNmcs(): NmcCode[] {
   const cats: [string, string, string][] = [
-    ["NMC-000001", "GATE VALVE DN80 PN16 CAST STEEL", "VALVE"],
-    ["NMC-000002", "CABLE 1.5 SQMM 3 CORE 1100V", "ELECTRICAL"],
-    ["NMC-000003", "HEX HEAD BOLT STAINLESS STEEL M16 X 50MM", "FASTENER"],
-    ["NMC-000004", "CENTRIFUGAL WATER PUMP 5 HP FLANGE MOUNTED", "PUMP"],
-    ["NMC-000005", "BALL VALVE 2 INCH SS304 PN16", "VALVE"],
-    ["NMC-000006", "NON ASBESTOS GASKET SHEET 3MM", "GASKET"],
-    ["NMC-000007", "CARBON STEEL PIPE SCH40 DN100", "PIPE"],
-    ["NMC-000008", "INDUCTION MOTOR 3 PHASE 15 KW 415V", "MOTOR"],
-    ["NMC-000009", "PRESSURE GAUGE 0-16 BAR BOTTOM ENTRY", "INSTRUMENT"],
-    ["NMC-000010", "SOLID CARBIDE DRILL BIT 10MM", "TOOLS"],
-    ["NMC-000011", "WELDING ELECTRODE E7018 4MM", "WELDING"],
-    ["NMC-000012", "FIRE EXTINGUISHER ABC 9KG", "SAFETY"],
-    ["NMC-000013", "MINIATURE CIRCUIT BREAKER (MCB) 16A SINGLE POLE IS/IEC 60898", "ELECTRICAL"],
-    ["NMC-000014", "SODIUM HYPOCHLORITE SOLUTION CONFORMING TO IS 11673", "CHEMICALS"],
-    ["NMC-000015", "INDUSTRIAL GAS CYLINDER OXYGEN / DISSOLVED ACETYLENE", "CHEMICALS"],
-    ["NMC-000016", "HEXAMINE TECHNICAL GRADE CHEMICAL", "CHEMICALS"],
-    ["NMC-000017", "VULCANIZED RUBBER CONVEYOR BELT OIL & HEAT RESISTANT", "GASKET"],
-    ["NMC-000018", "SUBMERSIBLE WATER PUMP SET 5 HP VERTICAL 415V", "PUMP"],
-    ["NMC-000019", "INDUSTRIAL AIRLINE HALF MASK RESPIRATOR SAFETY", "SAFETY"],
-    ["NMC-000020", "MAGNETIC STEEL SHEET VARNISH ELECTRICAL GRADE", "RAW_MATERIAL"],
+    ["NMC-VALVE-000001", "GATE VALVE DN80 PN16 CAST STEEL", "VALVE"],
+    ["NMC-CABLE-000002", "CABLE 1.5 SQMM 3 CORE 1100V", "ELECTRICAL"],
+    ["NMC-BOLT-000003", "HEX HEAD BOLT STAINLESS STEEL M16 X 50MM", "FASTENER"],
+    ["NMC-PUMP-000004", "CENTRIFUGAL WATER PUMP 5 HP FLANGE MOUNTED", "PUMP"],
+    ["NMC-VALVE-000005", "BALL VALVE 2 INCH SS304 PN16", "VALVE"],
+    ["NMC-GASKET-000006", "NON ASBESTOS GASKET SHEET 3MM", "GASKET"],
+    ["NMC-PIPE-000007", "CARBON STEEL PIPE SCH40 DN100", "PIPE"],
+    ["NMC-MOTOR-000008", "INDUCTION MOTOR 3 PHASE 15 KW 415V", "MOTOR"],
+    ["NMC-GAUGE-000009", "PRESSURE GAUGE 0-16 BAR BOTTOM ENTRY", "INSTRUMENT"],
+    ["NMC-DRILL-000010", "SOLID CARBIDE DRILL BIT 10MM", "TOOLS"],
+    ["NMC-WELD-000011", "WELDING ELECTRODE E7018 4MM", "WELDING"],
+    ["NMC-SAFETY-000012", "FIRE EXTINGUISHER ABC 9KG", "SAFETY"],
+    ["NMC-MCB-000013", "MINIATURE CIRCUIT BREAKER (MCB) 16A SINGLE POLE IS/IEC 60898", "ELECTRICAL"],
+    ["NMC-CHEM-000014", "SODIUM HYPOCHLORITE SOLUTION CONFORMING TO IS 11673", "CHEMICALS"],
+    ["NMC-GAS-000015", "INDUSTRIAL GAS CYLINDER OXYGEN / DISSOLVED ACETYLENE", "CHEMICALS"],
+    ["NMC-CHEM-000016", "HEXAMINE TECHNICAL GRADE CHEMICAL", "CHEMICALS"],
+    ["NMC-BELT-000017", "VULCANIZED RUBBER CONVEYOR BELT OIL & HEAT RESISTANT", "GASKET"],
+    ["NMC-PUMP-000018", "SUBMERSIBLE WATER PUMP SET 5 HP VERTICAL 415V", "PUMP"],
+    ["NMC-SAFETY-000019", "INDUSTRIAL AIRLINE HALF MASK RESPIRATOR SAFETY", "SAFETY"],
+    ["NMC-STEEL-000020", "MAGNETIC STEEL SHEET VARNISH ELECTRICAL GRADE", "RAW_MATERIAL"],
   ];
   return cats.map(([code, desc, category]) => ({
     nationalCode: code,
@@ -362,34 +477,34 @@ function guessCat(desc: string): string {
 }
 
 const nmcHints: Record<string, string> = {
-  "HEX HEAD BOLT": "NMC-000003",
-  "GATE VALVE": "NMC-000001",
-  "CABLE": "NMC-000002",
-  "WATER PUMP": "NMC-000004",
-  "CENTRIFUGAL WATER PUMP": "NMC-000004",
-  "CENTRIFUGAL PUMP": "NMC-000004",
-  "GASKET": "NMC-000006",
-  "BALL VALVE": "NMC-000005",
-  "PIPE": "NMC-000007",
-  "MOTOR": "NMC-000008",
-  "PRESSURE GAUGE": "NMC-000009",
-  "DRILL": "NMC-000010",
-  "ELECTRODE": "NMC-000011",
-  "MINIATURE CIRCUIT BREAKER": "NMC-000013",
-  "MCB": "NMC-000013",
-  "CIRCUIT BREAKER": "NMC-000013",
-  "SODIUM HYPOCHLORITE": "NMC-000014",
-  "HYPOCHLORITE": "NMC-000014",
-  "GAS CYLINDER": "NMC-000015",
-  "OXYGEN": "NMC-000015",
-  "HEXAMINE": "NMC-000016",
-  "CONVEYOR BELT": "NMC-000017",
-  "RUBBER BELT": "NMC-000017",
-  "SUBMERSIBLE": "NMC-000018",
-  "RESPIRATOR": "NMC-000019",
-  "BREATHING": "NMC-000019",
-  "STEEL SHEET VARNISH": "NMC-000020",
-  "VARNISH": "NMC-000020",
+  "HEX HEAD BOLT": "NMC-BOLT-000003",
+  "GATE VALVE": "NMC-VALVE-000001",
+  "CABLE": "NMC-CABLE-000002",
+  "WATER PUMP": "NMC-PUMP-000004",
+  "CENTRIFUGAL WATER PUMP": "NMC-PUMP-000004",
+  "CENTRIFUGAL PUMP": "NMC-PUMP-000004",
+  "GASKET": "NMC-GASKET-000006",
+  "BALL VALVE": "NMC-VALVE-000005",
+  "PIPE": "NMC-PIPE-000007",
+  "MOTOR": "NMC-MOTOR-000008",
+  "PRESSURE GAUGE": "NMC-GAUGE-000009",
+  "DRILL": "NMC-DRILL-000010",
+  "ELECTRODE": "NMC-WELD-000011",
+  "MINIATURE CIRCUIT BREAKER": "NMC-MCB-000013",
+  "MCB": "NMC-MCB-000013",
+  "CIRCUIT BREAKER": "NMC-MCB-000013",
+  "SODIUM HYPOCHLORITE": "NMC-CHEM-000014",
+  "HYPOCHLORITE": "NMC-CHEM-000014",
+  "GAS CYLINDER": "NMC-GAS-000015",
+  "OXYGEN": "NMC-GAS-000015",
+  "HEXAMINE": "NMC-CHEM-000016",
+  "CONVEYOR BELT": "NMC-BELT-000017",
+  "RUBBER BELT": "NMC-BELT-000017",
+  "SUBMERSIBLE": "NMC-PUMP-000018",
+  "RESPIRATOR": "NMC-SAFETY-000019",
+  "BREATHING": "NMC-SAFETY-000019",
+  "STEEL SHEET VARNISH": "NMC-STEEL-000020",
+  "VARNISH": "NMC-STEEL-000020",
 };
 
 function pickNmc(desc: string): string | undefined {
@@ -403,8 +518,14 @@ function seedMaterials(): SourceMaterial[] {
     const saved = localStorage.getItem("nmm_materials");
     if (saved) {
       try {
+        migrateLegacyStorage();
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map((m: SourceMaterial) => ({
+            ...m,
+            nmcCode: normalizeNmcCode(m.nmcCode, m.normalizedDescription || m.originalDescription, m.category),
+          }));
+        }
       } catch {}
     }
   }
@@ -438,7 +559,7 @@ function seedMaterials(): SourceMaterial[] {
       category: "RAW_MATERIAL",
       lifecycle: "PENDING",
       mappingStatus: "REVIEW",
-      nmcCode: "NMC-000020",
+      nmcCode: "NMC-STEEL-000020",
       aiConfidence: 85,
       dataQuality: "COMPLETE",
       sourceDocument: "BHEL Tender Notice FSIP/EOI/STM/2023-24-001",
@@ -456,7 +577,7 @@ function seedMaterials(): SourceMaterial[] {
       category: "CHEMICALS",
       lifecycle: "ACTIVE",
       mappingStatus: "REVIEW",
-      nmcCode: "NMC-000014",
+      nmcCode: "NMC-CHEM-000014",
       aiConfidence: 92,
       dataQuality: "COMPLETE",
       sourceDocument: "GeM Bid Notice GEM/2026/B/7994627",
@@ -474,7 +595,7 @@ function seedMaterials(): SourceMaterial[] {
       category: "ELECTRICAL",
       lifecycle: "PENDING",
       mappingStatus: "REVIEW",
-      nmcCode: "NMC-000013",
+      nmcCode: "NMC-MCB-000013",
       aiConfidence: 94,
       dataQuality: "COMPLETE",
       sourceDocument: "GeM Bid Notice GEM/2026/B/8027429",
@@ -492,7 +613,7 @@ function seedMaterials(): SourceMaterial[] {
       category: "CHEMICALS",
       lifecycle: "PENDING",
       mappingStatus: "REVIEW",
-      nmcCode: "NMC-000015",
+      nmcCode: "NMC-GAS-000015",
       aiConfidence: 84,
       dataQuality: "COMPLETE",
       sourceDocument: "GeM Bid Notice GEM/2026/B/7973222",
@@ -510,7 +631,7 @@ function seedMaterials(): SourceMaterial[] {
       category: "CHEMICALS",
       lifecycle: "PENDING",
       mappingStatus: "REVIEW",
-      nmcCode: "NMC-000016",
+      nmcCode: "NMC-CHEM-000016",
       aiConfidence: 86,
       dataQuality: "COMPLETE",
       sourceDocument: "GeM Bid Notice GEM/2026/B/7831709",
@@ -523,26 +644,26 @@ function seedMaterials(): SourceMaterial[] {
 }
 
 const nmcCodesById: Record<string, string> = {
-  "NMC-000001": "GATE VALVE DN80 PN16 CAST STEEL",
-  "NMC-000002": "CABLE 1.5 SQMM 3 CORE 1100V",
-  "NMC-000003": "HEX HEAD BOLT STAINLESS STEEL M16 X 50MM",
-  "NMC-000004": "CENTRIFUGAL WATER PUMP 5 HP FLANGE MOUNTED",
-  "NMC-000005": "BALL VALVE 2 INCH SS304 PN16",
-  "NMC-000006": "NON ASBESTOS GASKET SHEET 3MM",
-  "NMC-000007": "CARBON STEEL PIPE SCH40 DN100",
-  "NMC-000008": "INDUCTION MOTOR 3 PHASE 15 KW 415V",
-  "NMC-000009": "PRESSURE GAUGE 0-16 BAR BOTTOM ENTRY",
-  "NMC-000010": "SOLID CARBIDE DRILL BIT 10MM",
-  "NMC-000011": "WELDING ELECTRODE E7018 4MM",
-  "NMC-000012": "FIRE EXTINGUISHER ABC 9KG",
-  "NMC-000013": "MINIATURE CIRCUIT BREAKER (MCB) 16A SINGLE POLE IS/IEC 60898",
-  "NMC-000014": "SODIUM HYPOCHLORITE SOLUTION CONFORMING TO IS 11673",
-  "NMC-000015": "INDUSTRIAL GAS CYLINDER OXYGEN / DISSOLVED ACETYLENE",
-  "NMC-000016": "HEXAMINE TECHNICAL GRADE CHEMICAL",
-  "NMC-000017": "VULCANIZED RUBBER CONVEYOR BELT OIL & HEAT RESISTANT",
-  "NMC-000018": "SUBMERSIBLE WATER PUMP SET 5 HP VERTICAL 415V",
-  "NMC-000019": "INDUSTRIAL AIRLINE HALF MASK RESPIRATOR SAFETY",
-  "NMC-000020": "MAGNETIC STEEL SHEET VARNISH ELECTRICAL GRADE",
+  "NMC-VALVE-000001": "GATE VALVE DN80 PN16 CAST STEEL",
+  "NMC-CABLE-000002": "CABLE 1.5 SQMM 3 CORE 1100V",
+  "NMC-BOLT-000003": "HEX HEAD BOLT STAINLESS STEEL M16 X 50MM",
+  "NMC-PUMP-000004": "CENTRIFUGAL WATER PUMP 5 HP FLANGE MOUNTED",
+  "NMC-VALVE-000005": "BALL VALVE 2 INCH SS304 PN16",
+  "NMC-GASKET-000006": "NON ASBESTOS GASKET SHEET 3MM",
+  "NMC-PIPE-000007": "CARBON STEEL PIPE SCH40 DN100",
+  "NMC-MOTOR-000008": "INDUCTION MOTOR 3 PHASE 15 KW 415V",
+  "NMC-GAUGE-000009": "PRESSURE GAUGE 0-16 BAR BOTTOM ENTRY",
+  "NMC-DRILL-000010": "SOLID CARBIDE DRILL BIT 10MM",
+  "NMC-WELD-000011": "WELDING ELECTRODE E7018 4MM",
+  "NMC-SAFETY-000012": "FIRE EXTINGUISHER ABC 9KG",
+  "NMC-MCB-000013": "MINIATURE CIRCUIT BREAKER (MCB) 16A SINGLE POLE IS/IEC 60898",
+  "NMC-CHEM-000014": "SODIUM HYPOCHLORITE SOLUTION CONFORMING TO IS 11673",
+  "NMC-GAS-000015": "INDUSTRIAL GAS CYLINDER OXYGEN / DISSOLVED ACETYLENE",
+  "NMC-CHEM-000016": "HEXAMINE TECHNICAL GRADE CHEMICAL",
+  "NMC-BELT-000017": "VULCANIZED RUBBER CONVEYOR BELT OIL & HEAT RESISTANT",
+  "NMC-PUMP-000018": "SUBMERSIBLE WATER PUMP SET 5 HP VERTICAL 415V",
+  "NMC-SAFETY-000019": "INDUSTRIAL AIRLINE HALF MASK RESPIRATOR SAFETY",
+  "NMC-STEEL-000020": "MAGNETIC STEEL SHEET VARNISH ELECTRICAL GRADE",
 };
 
 function computeMappings(materials: SourceMaterial[]): Mapping[] {
@@ -551,30 +672,42 @@ function computeMappings(materials: SourceMaterial[]): Mapping[] {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
+        if (Array.isArray(parsed)) {
+          return parsed.map((m: Mapping) => {
+            const code = normalizeNmcCode(m.nationalCode, m.nationalDesc || m.normalizedDescription, "");
+            return {
+              ...m,
+              nationalCode: code || m.nationalCode,
+              nationalDesc: (code && nmcCodesById[code]) ? nmcCodesById[code] : m.nationalDesc,
+            };
+          });
+        }
       } catch {}
     }
   }
 
   return materials
     .filter((m) => m.nmcCode && m.mappingStatus !== "UNMAPPED")
-    .map((m, idx) => ({
-      id: idx + 1,
-      cpse: m.sourceOrganization,
-      sourceCode: m.originalMaterialCode,
-      rawDescription: m.originalDescription,
-      normalizedDescription: m.normalizedDescription || m.originalDescription.toUpperCase(),
-      nationalCode: m.nmcCode!,
-      nationalDesc: nmcCodesById[m.nmcCode!] || m.normalizedDescription || m.originalDescription,
-      mappingStatus: m.mappingStatus,
-      confidence: m.aiConfidence ? (m.aiConfidence > 1 ? m.aiConfidence / 100 : m.aiConfidence) : 0.85,
-      mappingSource: "AI Multi-Layer Analysis",
-      lastUpdated: new Date().toISOString(),
-      createdBy: "steward",
-      tenderDocName: m.sourceDocument || `${m.sourceOrganization} Official Tender`,
-      tenderUrl: m.sourceUrl || "https://bidplus.gem.gov.in/all-bids",
-      sourceCodeLabel: m.originalMaterialCode,
-    }));
+    .map((m, idx) => {
+      const code = normalizeNmcCode(m.nmcCode, m.normalizedDescription || m.originalDescription, m.category)!;
+      return {
+        id: idx + 1,
+        cpse: m.sourceOrganization,
+        sourceCode: m.originalMaterialCode,
+        rawDescription: m.originalDescription,
+        normalizedDescription: m.normalizedDescription || m.originalDescription.toUpperCase(),
+        nationalCode: code,
+        nationalDesc: nmcCodesById[code] || m.normalizedDescription || m.originalDescription,
+        mappingStatus: m.mappingStatus,
+        confidence: m.aiConfidence ? (m.aiConfidence > 1 ? m.aiConfidence / 100 : m.aiConfidence) : 0.85,
+        mappingSource: "AI Multi-Layer Analysis",
+        lastUpdated: new Date().toISOString(),
+        createdBy: "steward",
+        tenderDocName: m.sourceDocument || `${m.sourceOrganization} Official Tender`,
+        tenderUrl: m.sourceUrl || "https://bidplus.gem.gov.in/all-bids",
+        sourceCodeLabel: m.originalMaterialCode,
+      };
+    });
 }
 
 function computeDqRecords(materials: SourceMaterial[]): DqRecord[] {
@@ -697,7 +830,13 @@ function computeReviewItems(materials: SourceMaterial[], nmcs: NmcCode[]): Revie
 
         if ((a.category === b.category && a.category !== "GENERAL") || sim >= 0.25) {
           const conf = Math.min(0.95, Math.max(0.65, Math.round((sim * 0.5 + 0.5) * 100) / 100));
-          const suggested = a.nmcCode || b.nmcCode || "NMC-000001";
+          const rawSuggested =
+            a.nmcCode ||
+            b.nmcCode ||
+            pickNmc(a.originalDescription) ||
+            pickNmc(b.originalDescription) ||
+            `${NATIONAL_CODE_PREFIX}-${getCategoryCode(a.category, a.originalDescription)}-000001`;
+          const suggested = normalizeNmcCode(rawSuggested, a.originalDescription, a.category)!;
           const suggestedDesc = a.normalizedDescription || a.originalDescription;
 
           out.push({
@@ -1132,7 +1271,7 @@ export function PrototypeDataProvider({ children }: { children: ReactNode }) {
           id: Date.now() + i,
           cpseA: r.cpse, codeA: r.sourceCode, descA: r.rawDescription,
           cpseB: r.cpse, codeB: r.sourceCode + "-C", descB: "Candidate " + capStr(r.issueType) + " match",
-          suggestedNmc: "NMC-UNLISTED", suggestedDesc: "Awaiting matching",
+          suggestedNmc: `${NATIONAL_CODE_PREFIX}-${getCategoryCode(r.issueType, r.rawDescription)}-000001`, suggestedDesc: "Awaiting matching",
           confidence: 0.5, reason: "Remediated record re-submitted to AI matching from Data Quality.", status: "PENDING",
           priority: "MEDIUM", source: "Data Quality → AI", category: "GENERAL",
         }));

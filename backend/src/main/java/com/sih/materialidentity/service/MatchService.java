@@ -158,7 +158,8 @@ public class MatchService {
     private CommonMaterial findOrCreateCommon(SourceMaterial a, SourceMaterial b, String reviewer) {
         long count = commonRepo.count();
         CommonMaterial common = new CommonMaterial();
-        common.setNationalCode(String.format("NMC-%06d", count + 1));
+        String catTag = extractCategoryTag(a, b);
+        common.setNationalCode(String.format("NMC-%s-%06d", catTag, count + 1));
         common.setStandardizedDescription(buildStandardDescription(a, b));
         common.setDna(preferredDna(a, b));
         common.setStatus(com.sih.materialidentity.entity.enums.MaterialLifecycle.APPROVED);
@@ -166,6 +167,32 @@ public class MatchService {
         common.setApprovedAt(Instant.now());
         common.setAiAssessment("Created from approved match linking source records across CPSEs.");
         return commonRepo.save(common);
+    }
+
+    private String extractCategoryTag(SourceMaterial a, SourceMaterial b) {
+        String cat = (a.getCategory() != null ? a.getCategory() : (b.getCategory() != null ? b.getCategory() : "")).toUpperCase();
+        String desc = ((a.getNormalizedDescription() != null ? a.getNormalizedDescription() : a.getOriginalDescription()) + " " +
+                (b.getNormalizedDescription() != null ? b.getNormalizedDescription() : b.getOriginalDescription())).toUpperCase();
+
+        if (desc.matches(".*(BOLT|FASTENER|NUT|SCREW|STUD|WASHER).*") || cat.contains("FAST") || cat.contains("BOLT")) return "BOLT";
+        if (desc.contains("VALVE") || cat.contains("VALVE")) return "VALVE";
+        if (desc.matches(".*(CABLE|WIRE|CONDUCTOR).*") || cat.contains("ELEC")) return "CABLE";
+        if (desc.matches(".*(MCB|CIRCUIT BREAKER|SWITCHGEAR).*")) return "MCB";
+        if (desc.contains("PUMP") || cat.contains("PUMP")) return "PUMP";
+        if (desc.matches(".*(GASKET|O-RING|SEAL).*") || cat.contains("GASKET")) return "GASKET";
+        if (desc.matches(".*(BELT|CONVEYOR).*")) return "BELT";
+        if (desc.matches(".*(PIPE|TUBING|FLANGE|FITTING).*") || cat.contains("PIPE")) return "PIPE";
+        if (desc.contains("MOTOR") || cat.contains("MOTOR")) return "MOTOR";
+        if (desc.matches(".*(GAUGE|PRESSURE|TRANSMITTER|METER).*") || cat.contains("INST")) return "GAUGE";
+        if (desc.matches(".*(DRILL|BIT|CUTTER).*") || cat.contains("TOOL")) return "DRILL";
+        if (desc.matches(".*(ELECTRODE|WELDING).*") || cat.contains("WELD")) return "WELD";
+        if (desc.matches(".*(EXTINGUISHER|RESPIRATOR|SAFETY|MASK).*") || cat.contains("SAFE")) return "SAFETY";
+        if (desc.matches(".*(GAS|CYLINDER|OXYGEN|ACETYLENE).*")) return "GAS";
+        if (desc.matches(".*(HYPOCHLORITE|HEXAMINE|ACID|SOLVENT|CHEMICAL).*") || cat.contains("CHEM")) return "CHEM";
+        if (desc.matches(".*(STEEL|VARNISH|SHEET|PLATE|IRON).*") || cat.contains("RAW")) return "STEEL";
+
+        String clean = cat.replaceAll("[^A-Z0-9]", "");
+        return clean.isEmpty() ? "GEN" : clean.substring(0, Math.min(clean.length(), 6));
     }
 
     private String buildStandardDescription(SourceMaterial a, SourceMaterial b) {

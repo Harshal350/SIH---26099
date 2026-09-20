@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  Building2, RefreshCw, Link2, Unplug, Eye, ExternalLink, Plus, HardDrive, CheckCircle2, AlertTriangle, ShieldCheck, Sparkles
+  Building2, RefreshCw, Link2, Unplug, Eye, ExternalLink, Plus, HardDrive, CheckCircle2, AlertTriangle, Sparkles
 } from "lucide-react";
 import { useProto, Repo } from "@/context/prototype-data";
 import { PageHeader } from "@/components/page-header";
@@ -89,14 +89,6 @@ export default function CpseRepositories() {
           </div>
         }
       />
-
-      <div className="mb-4 rounded-lg border border-primary/20 bg-primary/5 p-3.5 text-sm text-primary flex items-start gap-3">
-        <ShieldCheck className="h-5 w-5 shrink-0 text-primary mt-0.5" />
-        <div>
-          <span className="font-semibold">Prompt Section 2 & 3 Compliance: </span>
-          Zero synthetic or fake source records. The application connects directly to live government portals (GeM, Coal India, BHEL, CPPP) to fetch real procurement tenders, items, quantities, and technical specifications with complete provenance.
-        </div>
-      </div>
 
       {repos.length === 0 ? (
         <EmptyState

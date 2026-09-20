@@ -38,7 +38,11 @@ export default function CpseMappings() {
   const filtered = useMemo(() => {
     return mappings.filter((m) => {
       if (cpse !== "ALL" && m.cpse !== cpse) return false;
-      if (cat !== "ALL" && m.nationalCode !== cat) return false;
+      if (cat !== "ALL") {
+        const parts = m.nationalCode.split("-");
+        const codeCat = parts.length >= 3 ? parts[1] : "";
+        if (m.nationalCode !== cat && codeCat !== cat && !m.nationalCode.includes(cat)) return false;
+      }
       if (status !== "ALL" && m.mappingStatus !== status) return false;
       if (conf === "HIGH" && m.confidence < 0.8) return false;
       if (conf === "MEDIUM" && (m.confidence < 0.6 || m.confidence >= 0.8)) return false;
@@ -49,7 +53,10 @@ export default function CpseMappings() {
   }, [mappings, cpse, cat, status, conf, reviewer]);
 
   const pageItems = filtered.slice(page * pageSize, page * pageSize + pageSize);
-  const catOptions = useMemo(() => Array.from(new Set(mappings.map((m) => m.nationalDesc?.split(" ")[0] || m.nationalCode))), [mappings]);
+  const catOptions = useMemo(() => Array.from(new Set(mappings.map((m) => {
+    const parts = m.nationalCode.split("-");
+    return parts.length >= 3 ? parts[1] : (m.nationalDesc?.split(" ")[0] || m.nationalCode);
+  }))).filter(Boolean).sort(), [mappings]);
 
   return (
     <div>
