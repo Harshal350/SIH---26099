@@ -77,4 +77,35 @@ export const api = {
   },
   createImportJob: (meta: Record<string, string>) =>
     request<any>("/import/create", { method: "POST", body: JSON.stringify(meta) }),
+  syncLiveRepository: async (source: string, limit = 10, query = "") => {
+    // Attempt live fetch endpoint
+    try {
+      const res = await fetch("/api/repos/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source, limit, query }),
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch {
+      /* continue */
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/repos/sync`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ source, limit, query }),
+      });
+      if (res.ok) return await res.json();
+    } catch {
+      /* continue */
+    }
+
+    throw new Error(`Unable to fetch live records from ${source}. Please check connectivity.`);
+  },
 };
