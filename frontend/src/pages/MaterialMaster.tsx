@@ -62,7 +62,8 @@ export default function MaterialMaster() {
           if (dq === "ATTENTION" && m.dataQuality !== "ATTENTION") return false;
         }
         if (confidence !== "ALL") {
-          const c = m.aiConfidence ?? 0;
+          const raw = m.aiConfidence ?? 0;
+          const c = raw > 1 ? raw / 100 : raw;
           if (confidence === "HIGH" && c < 0.8) return false;
           if (confidence === "MEDIUM" && (c < 0.6 || c >= 0.8)) return false;
           if (confidence === "LOW" && c >= 0.6) return false;
@@ -184,10 +185,14 @@ export default function MaterialMaster() {
                     </TD>
                     <TD><Badge tone={statusTone(m.mappingStatus)}>{m.mappingStatus}</Badge></TD>
                     <TD>
-                      {m.aiConfidence != null
-                        ? <span className={`font-medium ${m.aiConfidence >= 0.8 ? "text-success" : m.aiConfidence >= 0.6 ? "text-warning" : "text-destructive"}`}>{Math.round(m.aiConfidence * 100)}%</span>
-                        : <span className="text-muted-foreground">—</span>}
+                      {m.aiConfidence != null ? (() => {
+                        const pct = Math.round(m.aiConfidence > 1 ? m.aiConfidence : m.aiConfidence * 100);
+                        return <span className={`font-medium ${pct >= 80 ? "text-success" : pct >= 60 ? "text-warning" : "text-destructive"}`}>{pct}%</span>;
+                      })() : <span className="text-muted-foreground">—</span>}
                     </TD>
+
+
+
                     <TD>
                       <Tooltip content={m.dataQuality === "CLEAN" ? "Record is clean" : "Record needs attention"}>
                         <Badge tone={m.dataQuality === "CLEAN" ? "success" : "warning"}>{m.dataQuality}</Badge>

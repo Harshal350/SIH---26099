@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Sparkles, CheckCircle2, Loader2, Inbox } from "lucide-react";
 import { api } from "@/lib/api";
+import { useProto } from "@/context/prototype-data";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -44,13 +45,14 @@ const stages = [
 export default function AiMatching() {
   const { toast } = useToast();
   const navigate = useNavigate();
+  const proto = useProto();
 
   const [running, setRunning] = useState(false);
   const [stageIdx, setStageIdx] = useState(-1);
   const [created, setCreated] = useState<number | null>(null);
   const [pending, setPending] = useState<PendingItem[]>([]);
   const [loadingPending, setLoadingPending] = useState(true);
-  const [lastRun, setLastRun] = useState<string | null>(null);
+  const [lastRun, setLastRun] = useState<string | null>(proto.lastMatchedAt);
   const timerRef = useRef<any>(null);
 
   useEffect(() => () => clearInterval(timerRef.current), []);
@@ -58,12 +60,40 @@ export default function AiMatching() {
   useEffect(() => {
     api
       .pendingMatches()
-      .then((r) => setPending(r))
+      .then((r) => {
+        if (Array.isArray(r) && r.length > 0) setPending(r);
+        else setPending([]);
+      })
       .catch(() => setPending([]))
       .finally(() => setLoadingPending(false));
   }, []);
 
-  const pendingList = pending.filter((r) => r.status === "PENDING");
+  const pendingList: PendingItem[] = useMemo(() => {
+    if (pending.length > 0) return pending.filter((r) => r.status === "PENDING");
+    return proto.reviewItems
+      .filter((r) => r.status === "PENDING")
+      .map((r) => ({
+        id: r.id,
+        confidence: r.confidence,
+        classification: r.category || "GENERAL",
+        status: r.status,
+        explanation: r.reason,
+        sourceA: {
+          sourceOrganization: r.cpseA,
+          originalMaterialCode: r.codeA,
+          originalDescription: r.descA,
+          category: r.category,
+          sourceType: "CPSE Portal / GeM",
+        },
+        sourceB: {
+          sourceOrganization: r.cpseB,
+          originalMaterialCode: r.codeB,
+          originalDescription: r.descB,
+          category: r.category,
+          sourceType: "CPSE Portal / GeM",
+        },
+      }));
+  }, [pending, proto.reviewItems]);
 
   async function run() {
     setRunning(true);
@@ -75,14 +105,15 @@ export default function AiMatching() {
       if (i >= stages.length) {
         clearInterval(stg);
         clearInterval(timerRef.current);
-        api
-          .runMatching()
-          .then(async (res: any) => {
-            setCreated(res.created ?? pending.length);
+        proto
+          .runAiMatching()
+          .then(async (stats) => {
+            setCreated(stats.review);
             setLastRun(new Date().toISOString());
+            api.runMatching().catch(() => {});
             const list = await api.pendingMatches().catch(() => []);
-            setPending(list);
-            toast("success", "Matching complete", `${Number.isFinite(res.created) ? `${res.created} recommendation(s) created` : "Review queue updated"}.`);
+            if (Array.isArray(list) && list.length > 0) setPending(list);
+            toast("success", "Matching complete", `${stats.review} candidate recommendations identified across CPSE materials.`);
           })
           .catch((err: any) => {
             toast("error", "Matching failed", err.message || "The matcher could not be run.");
@@ -91,7 +122,7 @@ export default function AiMatching() {
       } else {
         setStageIdx(i);
       }
-    }, 500);
+    }, 450);
     timerRef.current = stg;
   }
 

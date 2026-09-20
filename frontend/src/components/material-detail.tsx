@@ -45,7 +45,8 @@ export default function MaterialDetail({
             <Row k="Category" v={<Badge tone="info">{material.category}</Badge>} />
             <Row k="NMC / National code" v={material.nmcCode ? <span className="font-mono text-success">{material.nmcCode}</span> : <span className="text-muted-foreground">Not mapped</span>} />
             <Row k="Mapping status" v={<Badge tone={material.mappingStatus === "MAPPED" ? "success" : "warning"}>{material.mappingStatus}</Badge>} />
-            <Row k="AI confidence" v={material.aiConfidence != null ? `${Math.round(material.aiConfidence * 100)}%` : "—"} />
+            <Row k="AI confidence" v={material.aiConfidence != null ? `${Math.round(material.aiConfidence > 1 ? material.aiConfidence : material.aiConfidence * 100)}%` : "—"} />
+
             <Row k="Mapped by" v={linkedMapping?.createdBy || "—"} />
             <Row k="Mapped at" v={linkedMapping ? new Date(linkedMapping.lastUpdated).toLocaleString() : "—"} />
           </div>
