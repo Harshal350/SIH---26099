@@ -513,6 +513,19 @@ function pickNmc(desc: string): string | undefined {
   return undefined;
 }
 
+const DEMO_RECORDS: [string, string, string][] = [
+  ["BALL BEARING 6205-2RS DEEP GROOVE SKF", "EA", "1"],
+  ["GATE VALVE DN100 PN16 CLASS 150 FLANGED", "NOS", "4"],
+  ["PVC INSULATED POWER CABLE 1.1KV 3C X 95 SQMM", "MTR", "500"],
+  ["CENTRIFUGAL WATER PUMP 25 HP 3 PHASE", "NOS", "2"],
+  ["NON ASBESTOS SPIRAL WOUND GASKET 4 INCH", "NOS", "12"],
+  ["CARBON STEEL PIPE 4 INCH SCH 40 SEAMLESS", "MTR", "120"],
+  ["HEX HEAD BOLT M16 X 70 WITH NUTS AND WASHERS", "SET", "200"],
+  ["PRESSURE GAUGE 0-10 KG/CM2 DIAL 4 INCH", "NOS", "8"],
+  ["WELDING ELECTRODE E7018 3.15MM X 350MM", "KG", "150"],
+  ["CONVEYOR BELT 1200MM 5 PLY RUBBER", "MTR", "300"],
+];
+
 function seedMaterials(): SourceMaterial[] {
   if (typeof window !== "undefined") {
     const saved = localStorage.getItem("nmm_materials");
@@ -1127,25 +1140,33 @@ export function PrototypeDataProvider({ children }: { children: ReactNode }) {
             throw new Error(liveData?.error || "No records returned");
           }
         } catch (err: any) {
-          console.error("Live repository sync failed:", err);
-          setRepos((x) =>
-            x.map((r) =>
+          console.error("Live repository sync failed. No records were consolidated or persisted:", err);
+          const errorText = err instanceof Error ? err.message : (err?.message || "Portal unreachable or request failed");
+
+          setRepos((x) => {
+            const updated = x.map((r) =>
               r.id === id
                 ? {
                     ...r,
                     status: "ERROR",
                     syncStatus: "SYNC_ERROR",
+                    extractionStatus: "FAILED",
                     health: "Attention",
                     lastSync: new Date().toISOString(),
                   }
                 : r
-            )
-          );
+            );
+            try {
+              localStorage.setItem("nmm_repos", JSON.stringify(updated));
+            } catch {}
+            return updated;
+          });
+
           pushAudit(
-            "SYNC_FAILED",
+            "REPOSITORY_SYNC_FAILED",
             "REPOSITORY",
             id,
-            `Failed to sync ${repo.name}: ${err.message || "Network/Portal timeout"}`,
+            `Live sync for ${repo.name} failed: ${errorText}`,
             "admin"
           );
           throw err;

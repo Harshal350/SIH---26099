@@ -35,7 +35,7 @@ export default function CpseRepositories() {
     setSyncInProgress(id);
     try {
       await syncRepository(id);
-      toast("success", "Live Repository Synced", `Successfully pulled genuine records from ${repo?.name || "portal"}.`);
+      toast("success", "Repository Synced", `Successfully pulled records from ${repo?.name || "portal"}.`);
     } catch (err: any) {
       toast("danger", "Live Sync Error", err.message || "Failed to pull live records from portal.");
     } finally {
