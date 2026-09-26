@@ -4,6 +4,7 @@ import {
   ExternalLink, ChevronRight,
 } from "lucide-react";
 import { useProto } from "@/context/prototype-data";
+import { DECISION_POLICY } from "@/lib/matching";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -16,21 +17,30 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const { loading } = proto;
 
+  const stats = proto.matchingStats;
   const materialsTotal = proto.materials.length;
   const connectedRepos = proto.repos.filter((r) => r.status !== "DISCONNECTED");
-  const pendingReviews = proto.reviewItems.filter((r) => r.status === "PENDING").length;
-  const mapped = proto.mappings.filter((m) => m.mappingStatus === "MAPPED").length;
   const dqOpen = proto.dqRecords.filter((r) => r.status !== "REMEDIATED").length;
-  const normPct = Math.min(100, Math.round((mapped / Math.max(proto.mappings.length || 1, 1)) * 100));
-  const dqScore = Math.max(0, 100 - dqOpen * 3);
+
+  const liveCount = proto.materials.filter((m) => m.origin === "LIVE").length;
+  const referenceCount = proto.materials.filter((m) => m.origin === "REFERENCE").length;
+  const demoCount = proto.materials.filter((m) => m.origin === "DEMO").length;
+
+  const assignedCodes = new Set(proto.mappings.map((m) => m.nationalCode));
+  const mappedRecords = proto.materials.filter((m) => Boolean(m.nmcCode)).length;
+  const coveragePct = materialsTotal ? Math.round((mappedRecords / materialsTotal) * 100) : 0;
+
+  const asOf = proto.lastMatchedAt
+    ? new Date(proto.lastMatchedAt).toLocaleString()
+    : "not run in this session";
 
   const cards = [
     {
-      label: "Connected CPSE Repositories",
+      label: "Connected Repositories",
       icon: <HardDrive className="h-5 w-5" />,
-      value: `${connectedRepos.length} repositories`,
+      value: `${connectedRepos.length} of ${proto.repos.length}`,
       to: "/repositories",
-      description: "Repositories actively feeding material records into the platform. Health, last sync time and sources are managed here.",
+      description: "Source portals configured for this workspace. Health and last successful sync are tracked per portal.",
       footer: (
         <div className="flex flex-wrap gap-2">
           <Badge tone="success">{connectedRepos.filter((r) => r.health === "Healthy").length} healthy</Badge>
@@ -39,69 +49,75 @@ export default function Dashboard() {
       ),
     },
     {
-      label: "Normalized Materials",
+      label: "Source Records",
       icon: <Landmark className="h-5 w-5" />,
-      value: `${materialsTotal.toLocaleString()}`,
+      value: materialsTotal.toLocaleString(),
       to: "/material-master",
-      description: "Source material records consolidated and normalized. Shows share of records already mapped to a National Code.",
-      footer: (
-        <div className="space-y-1.5">
-          <Progress value={normPct / 100} tone={normPct >= 70 ? "success" : normPct >= 40 ? "warning" : "danger"} />
-          <p className="text-xs text-muted-foreground">{normPct}% mapped · {materialsTotal - mapped} awaiting mapping</p>
-        </div>
-      ),
-    },
-    {
-      label: "AI Matching",
-      icon: <Sparkles className="h-5 w-5" />,
-      value: `${proto.matchingStats.highConfidence.toLocaleString()} matched`,
-      to: "/ai-matching",
-      description: "Records assessed by the AI multi-layer deterministic matcher. High-confidence results become mappings; uncertain ones enter review.",
+      description: `Every record ingested. ${stats.matchableMaterials} classified as MATERIAL and eligible for matching; ${stats.excludedNonMaterial} classified as service, work or consultancy and excluded.`,
       footer: (
         <div className="flex flex-wrap gap-2">
-          <Badge tone="success">{proto.matchingStats.highConfidence.toLocaleString()} high-conf</Badge>
-          <Badge tone="warning">{proto.matchingStats.review.toLocaleString()} for review</Badge>
+          <Badge tone="success">{liveCount} live</Badge>
+          <Badge tone="info">{referenceCount} reference</Badge>
+          <Badge tone="warning">{demoCount} demo</Badge>
         </div>
       ),
     },
     {
-      label: "Review Queue",
-      icon: <Inbox className="h-5 w-5" />,
-      value: `${pendingReviews} pending`,
-      to: "/review-queue",
-      description: "Human-in-the-loop approvals for AI match recommendations. High-priority items need attention first.",
+      label: "Match Candidates",
+      icon: <Sparkles className="h-5 w-5" />,
+      value: stats.candidatesEvaluated.toLocaleString(),
+      to: "/ai-matching",
+      description: `Candidate pairs scored by the deterministic matcher across ${stats.matchableMaterials} material records. A pair is only surfaced when its confidence reaches the ${DECISION_POLICY.candidateFloor} candidate floor.`,
       footer: (
-        <div className="flex items-center justify-between">
-          <Badge tone={pendingReviews > 0 ? "warning" : "success"}>
-            {proto.reviewItems.filter((r) => r.priority === "HIGH" && r.status === "PENDING").length} high-priority
+        <div className="flex flex-wrap gap-2">
+          <Badge tone="success">{stats.recommended} recommended</Badge>
+          <Badge tone="danger">{stats.blocked} conflict-blocked</Badge>
+          <Badge tone="neutral">{stats.candidatesRejected} below floor</Badge>
+        </div>
+      ),
+    },
+    {
+      label: "Human Decisions",
+      icon: <Inbox className="h-5 w-5" />,
+      value: `${stats.pendingReview} pending`,
+      to: "/review-queue",
+      description:
+        "No record is ever merged automatically. A pair becomes a national material code only after a reviewer approves it.",
+      footer: (
+        <div className="flex flex-wrap gap-2">
+          <Badge tone="success">{stats.approved} approved</Badge>
+          <Badge tone="neutral">{stats.rejected} rejected</Badge>
+          <Badge tone="warning">
+            {proto.reviewItems.filter((r) => r.priority === "HIGH" && r.status === "PENDING").length} high priority
           </Badge>
-          <span className="inline-flex items-center gap-1 text-xs font-medium text-primary">Open queue <ChevronRight className="h-3 w-3" /></span>
+        </div>
+      ),
+    },
+    {
+      label: "National Material Codes",
+      icon: <BadgeCheck className="h-5 w-5" />,
+      value: `${assignedCodes.size} assigned`,
+      to: "/procurement",
+      description: `Distinct NMC codes created by human approval, covering ${mappedRecords} of ${materialsTotal} source records (${coveragePct}%). Codes are never created by the matcher alone.`,
+      footer: (
+        <div className="space-y-1.5">
+          <Progress value={coveragePct / 100} tone={coveragePct >= 70 ? "success" : coveragePct >= 40 ? "warning" : "danger"} />
+          <p className="text-xs text-muted-foreground">
+            {coveragePct}% of {materialsTotal} source records carry an approved NMC
+          </p>
         </div>
       ),
     },
     {
       label: "Data Quality",
       icon: <ShieldAlert className="h-5 w-5" />,
-      value: `${dqOpen} records need attention`,
+      value: `${dqOpen} open`,
       to: "/data-quality",
-      description: "Records flagged for missing/invalid codes, duplicate materials, poor extraction or incomplete normalization. Remediation score shown.",
-      footer: (
-        <div className="flex items-center justify-between">
-          <Badge tone={dqOpen > 0 ? "warning" : "success"}>{dqOpen} open</Badge>
-          <span className="text-xs text-muted-foreground">DQ score {Math.round(dqScore)}%</span>
-        </div>
-      ),
-    },
-    {
-      label: "Procurement Intelligence",
-      icon: <BadgeCheck className="h-5 w-5" />,
-      value: `${proto.procurement.standardizationOpps} opportunities`,
-      to: "/procurement",
-      description: "Aggregated spend and demand insights, standardization opportunities, duplicate detection and migration readiness across CPSEs.",
+      description: `Open extraction issues detected in ${proto.dqRecords.length} flagged record(s), each generated from a specific missing or contradictory attribute.`,
       footer: (
         <div className="flex flex-wrap gap-2">
-          <Badge tone="info">{proto.procurement.nmcCoverage}% NMC coverage</Badge>
-          <Badge tone={proto.procurement.unmappedPct > 20 ? "danger" : "success"}>{proto.procurement.unmappedPct}% unmapped</Badge>
+          <Badge tone={dqOpen > 0 ? "warning" : "success"}>{dqOpen} open</Badge>
+          <Badge tone="success">{proto.dqRecords.length - dqOpen} remediated</Badge>
         </div>
       ),
     },
@@ -153,13 +169,17 @@ export default function Dashboard() {
           <div>
             <h3 className="font-semibold">Your workflow</h3>
             <p className="text-sm text-muted-foreground">
-              Import CPSE data → resolve data quality → run AI matching → review and approve → national codes are created and reflected across every module.
+              Import or sync CPSE data → resolve data quality → run matching → human review and approval → national codes are created and reflected across every module.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="outline" onClick={() => navigate("/data-quality")}>Fix data quality</Button>
-            <Button onClick={() => navigate("/ai-matching")}>Run AI matching</Button>
+            <Button onClick={() => navigate("/ai-matching")}>Run matching</Button>
           </div>
+        </div>
+        <div className="border-t bg-muted/30 px-5 py-3 text-xs text-muted-foreground">
+          Match statistics as of <span className="font-medium text-foreground">{asOf}</span>. Counts are computed from the
+          records currently loaded in this browser; nothing here is pre-computed or hard-coded.
         </div>
       </Card>
 

@@ -1,6 +1,10 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "https://sih-26099-prototype.onrender.com/api";
+// Vite statically replaces import.meta.env at build time. The `|| {}` keeps the
+// module importable outside a Vite context (e.g. the verification harness),
+// where import.meta.env does not exist.
+const env = (import.meta as any).env || {};
+const API_BASE = env.VITE_API_BASE_URL || "https://sih-26099-prototype.onrender.com/api";
 
-let token: string | null = localStorage.getItem("token");
+let token: string | null = typeof localStorage === "undefined" ? null : localStorage.getItem("token");
 
 export function setToken(t: string | null) {
   token = t;

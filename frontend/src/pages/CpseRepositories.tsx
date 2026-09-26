@@ -37,7 +37,7 @@ export default function CpseRepositories() {
       await syncRepository(id);
       toast("success", "Repository Synced", `Successfully pulled records from ${repo?.name || "portal"}.`);
     } catch (err: any) {
-      toast("danger", "Live Sync Error", err.message || "Failed to pull live records from portal.");
+      toast("error", "Live Sync Error", err.message || "Failed to pull live records from portal.");
     } finally {
       setSyncInProgress(null);
     }
@@ -48,10 +48,11 @@ export default function CpseRepositories() {
     try {
       if (syncAllRepositories) {
         await syncAllRepositories();
-        toast("success", "All Live Portals Synced", "Live records updated across all connected government and CPSE sources.");
+        // The provider reports its own partial-failure warning, so a blanket
+        // success message is not shown here.
       }
     } catch (err: any) {
-      toast("danger", "Sync Incomplete", err.message || "One or more portals had a sync error.");
+      toast("error", "Sync Incomplete", err.message || "One or more portals had a sync error.");
     } finally {
       setSyncingAll(false);
     }
@@ -63,11 +64,12 @@ export default function CpseRepositories() {
         const rName = inspecting.name.toLowerCase();
         const rKey = inspecting.sourceKey?.toLowerCase() || "";
         const rUrl = inspecting.url.toLowerCase();
+        const doc = (m.sourceDocument || "").toLowerCase();
 
         return (
           org.includes(rName.split(" ")[0]) ||
-          (rKey && (org.includes(rKey) || m.sourceType.toLowerCase().includes(rKey))) ||
-          (m.sourceUrl && rUrl && (m.sourceUrl.includes("gem.gov.in") && rUrl.includes("gem.gov.in") || m.sourceUrl.includes("coalindia.in") && rUrl.includes("coalindia.in") || m.sourceUrl.includes("bhel.com") && rUrl.includes("bhel.com")))
+          (rKey && (org.includes(rKey) || doc.includes(rKey))) ||
+          (Boolean(m.sourceUrl) && rUrl && m.sourceUrl!.includes(rUrl))
         );
       })
     : [];
@@ -122,7 +124,7 @@ export default function CpseRepositories() {
                         <div className="flex items-center gap-2">
                           <p className="font-medium text-foreground">{r.name}</p>
                           {r.sourceKey && (
-                            <Badge variant="outline" className="text-[10px] uppercase font-mono tracking-wider">
+                            <Badge tone="info" className="text-[10px] uppercase font-mono tracking-wider">
                               LIVE
                             </Badge>
                           )}
@@ -299,10 +301,23 @@ export default function CpseRepositories() {
                       {inspectedMaterials.map((m) => (
                         <TR key={m.id}>
                           <TD className="font-mono text-xs font-medium">{m.originalMaterialCode}</TD>
-                          <TD className="text-xs max-w-xs truncate" title={m.originalDescription}>
+                          <TD className="text-xs max-w-xs truncate">
                             {m.originalDescription}
                           </TD>
-                          <TD><Badge variant="outline" className="text-[10px]">{m.category}</Badge></TD>
+                          <TD>
+                            <Badge tone="neutral" className="text-[10px]">{m.category}</Badge>
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              <Badge
+                                tone={m.origin === "LIVE" ? "success" : m.origin === "DEMO" ? "warning" : "info"}
+                                className="text-[10px]"
+                              >
+                                {m.origin}
+                              </Badge>
+                              <Badge tone={m.itemLevel ? "neutral" : "warning"} className="text-[10px]">
+                                {m.itemLevel ? "item level" : "notice level"}
+                              </Badge>
+                            </div>
+                          </TD>
                           <TD className="text-xs font-mono">{m.originalQuantity} {m.originalUom}</TD>
                           <TD>
                             {m.sourceUrl ? (

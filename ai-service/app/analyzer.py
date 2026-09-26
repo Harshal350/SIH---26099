@@ -89,8 +89,22 @@ def _extract_pressure(desc: str):
     return None
 
 def _extract_size(desc: str):
+    """Extract an overall size, e.g. '25 MM'. Previously declared but stubbed."""
     m = re.search(r'(?:SIZE|SIZ)[\s:]*(\d{1,4}(?:\.\d+)?)\s*(MM|CM|IN|INCH)?', desc)
-    return None  # size handled per category below
+    if m:
+        return f"{_fmt_num(m.group(1))} {m.group(3) or 'MM'}"
+    m = re.search(r'\b(\d{1,4}(?:\.\d+)?)\s?(MM|CM|IN|INCH)\b', desc)
+    if m:
+        return f"{_fmt_num(m.group(1))} {m.group(2)}"
+    return None
+
+
+def _extract_power_capacity(desc: str):
+    """Power rating, e.g. '10 HP' / '7.5 KW' (pumps, motors, blowers)."""
+    m = re.search(r'\b(\d{1,4}(?:\.\d+)?)\s?(HP|KW)\b', desc)
+    if m:
+        return f"{_fmt_num(m.group(1))} {m.group(2).upper()}"
+    return None
 
 def _match_category(desc: str):
     d = desc.upper()
@@ -168,6 +182,7 @@ def extract_dna(description: str) -> dict:
     dna["grade"] = _extract_grade(desc)
     dna["diameter"] = _extract_diameter(desc)
     dna["length"] = _extract_length(desc)
+    dna["size"] = _extract_size(desc)
 
     cat = dna["category"]
     if cat == "FASTENER":
@@ -210,12 +225,65 @@ def extract_dna(description: str) -> dict:
     uom = _find_unit(desc)
     dna["uom"] = uom
 
+    if not dna.get("capacity"):
+        dna["capacity"] = _extract_power_capacity(desc)
+    if not dna.get("diameter") and dna.get("size"):
+        dna["diameter"] = dna["size"]
+    if not dna.get("size") and dna.get("diameter"):
+        dna["size"] = dna["diameter"]
+
     # Ensure missing critical fields are explicit (but not invented)
-    for key in ("category", "type", "material", "grade", "diameter", "length", "capacity", "pressure_rating", "voltage"):
+    for key in ("category", "type", "material", "grade", "diameter", "length", "size", "capacity", "pressure_rating", "voltage"):
         if key not in dna or dna[key] is None:
             dna[key] = None
 
     return dna
+
+RECORD_TYPES = ("MATERIAL", "SERVICE", "WORK", "CONSULTANCY")
+
+# Port of classifyRecordType() in frontend/src/lib/matching.ts. Classification
+# happens before matching so services, works and consultancy are never compared
+# material-to-material. Order matters: consultancy, then works, then services.
+_CONSULTANCY = [
+    r"\b(consultancy|consultant|consultants|consulting|advisory)\b",
+    r"\bhiring\s+of\s+consultant",
+    r"\b(feasibility\s+study|market\s+study|strategy|formulation\s+of)\b",
+]
+
+_WORK = [
+    r"\b(civil\s+works?|construction\s+works?|erection|renovation|repairing|repair\s+of)\b",
+    r"\bworks?\s+of\s+(construction|erection|renovation)\b",
+    r"\b(construction|erection)\s+of\b",
+]
+
+_SERVICE = [
+    r"\b(providing\s+services?|supply\s+of\s+services?|services?\s+of\s+\w+)\b",
+    r"\b(annual\s+maintenance\s+contract|amc)\b",
+    r"\b(catering|housekeeping|transportation\s+services?|security\s+services?|manpower\s+services?)\b",
+    r"\b(services?\s+contract|service\s+of\s+(transportation|canteen|security|manpower))\b",
+    r"\b(subscription\s+to|managed\s+services?|cloud\s+infrastructure\s+services?)\b",
+    r"\b(supply\s+of\s+manpower|supply\s+of\s+labour|manpower\s+supply)\b",
+]
+
+
+def classify_record_type(description: str) -> str:
+    """MATERIAL | SERVICE | WORK | CONSULTANCY."""
+    d = _norm(description)
+    for patterns, kind in (
+        (_CONSULTANCY, "CONSULTANCY"),
+        (_WORK, "WORK"),
+        (_SERVICE, "SERVICE"),
+    ):
+        for p in patterns:
+            if re.search(p, d, re.IGNORECASE):
+                return kind
+    return "MATERIAL"
+
+
+def is_matchable(description: str) -> bool:
+    """Only material records may be compared material-to-material."""
+    return classify_record_type(description) == "MATERIAL"
+
 
 def normalize_description(description: str) -> str:
     if not description:
@@ -226,4 +294,8 @@ def normalize_description(description: str) -> str:
         if token in (full,):
             continue
         d = re.sub(r'\b' + re.escape(token) + r'\b', full, d)
+    # Separate digits from adjacent letters so "25MM" and "25 MM" are the same
+    # specification rather than two different ones.
+    d = re.sub(r'(\d)\s*([A-Z]{2,})', r'\1 \2', d)
+    d = re.sub(r'([A-Z]{2,})\s*(\d)', r'\1 \2', d)
     return " ".join(d.split())

@@ -108,8 +108,8 @@ export default function Procurement() {
                   <div className="flex flex-wrap gap-2">{highValue.map((c) => <Badge key={c} tone="info">{c}</Badge>)}</div>
                 )}
                 <div className="mt-5 rounded-md border p-3">
-                  <p className="flex items-center gap-2 text-sm font-semibold"><TrendingUp className="h-4 w-4 text-success" /> Spend trend (₹ crore, illustrative)</p>
-                  <div className="mt-2"><HBarChart data={procurement.trend} valueKey="spend" labelKey="label" /></div>
+                  <p className="flex items-center gap-2 text-sm font-semibold"><TrendingUp className="h-4 w-4 text-success" /> Records retrieved per month</p>
+                  <div className="mt-2"><HBarChart data={procurement.trend} valueKey="records" labelKey="label" /></div>
                 </div>
               </CardContent>
             </Card>

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ShieldCheck, Search, Download, Sparkles, CheckCircle2, FilterX } from "lucide-react";
+import { ShieldCheck, Search, Download, Sparkles, CheckCircle2, FilterX, ArrowRight } from "lucide-react";
 import { useProto, DqRecord, DqSeverity } from "@/context/prototype-data";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,7 @@ function sevTone(s: DqSeverity) {
 }
 
 export default function DataQuality() {
-  const { dqRecords, remediateDq, sendDqToAi } = useProto();
+  const { dqRecords, remediateDq, sendDqToAi, materials } = useProto();
   const { toast } = useToast();
 
   const [cpse, setCpse] = useState("ALL");
@@ -31,10 +31,13 @@ export default function DataQuality() {
 
   const openCount = dqRecords.filter((r) => r.status !== "REMEDIATED").length;
   const errorCount = dqRecords.filter((r) => r.severity === "ERROR" && r.status !== "REMEDIATED").length;
-  const dqScore = Math.max(0, Math.round(100 - openCount * 2.5));
+  const remediatedCount = dqRecords.filter((r) => r.status === "REMEDIATED").length;
 
   const cpseOptions = useMemo(() => Array.from(new Set(dqRecords.map((r) => r.cpse))).sort(), [dqRecords]);
-  const issueOptions = useMemo(() => Array.from(new Set(dqRecords.map((r) => r.issueType))).sort(), [dqRecords]);
+  const issueOptions = useMemo(
+    () => Array.from(new Set(dqRecords.map((r) => r.issueType))).sort(),
+    [dqRecords],
+  );
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase();
@@ -43,96 +46,185 @@ export default function DataQuality() {
       if (issue !== "ALL" && r.issueType !== issue) return false;
       if (sev !== "ALL" && r.severity !== sev) return false;
       if (status !== "ALL" && r.status !== status) return false;
-      if (q && !`${r.rawDescription} ${r.sourceCode} ${r.cpse}`.toLowerCase().includes(q)) return false;
+      if (q && !`${r.rawDescription} ${r.sourceCode} ${r.cpse} ${r.field ?? ""}`.toLowerCase().includes(q))
+        return false;
       return true;
     });
   }, [dqRecords, cpse, issue, sev, status, query]);
-  const pageItems = filtered.slice(page * pageSize, page * pageSize + pageSize);
 
-  function sendToAi(ids: number[]) {
+  const pageItems = filtered.slice(page * pageSize, page * pageSize + pageSize);
+  const pageHasRemediated = pageItems.some((r) => r.status === "REMEDIATED");
+
+  function sendToMatching(ids: number[]) {
     sendDqToAi(ids);
-    toast("success", "Sent to AI matching", `${ids.length} remediated records were queued for AI matching.`);
+    toast(
+      "success",
+      "Re-processed",
+      "Attributes were re-extracted from the corrected text and the records were re-run through the matcher.",
+    );
+  }
+
+  function resetFilters() {
+    setStatus("ALL");
+    setCpse("ALL");
+    setIssue("ALL");
+    setSev("ALL");
+    setQuery("");
+    setPage(0);
   }
 
   return (
     <div>
       <PageHeader
         title="Data Quality"
-        description="Records that need attention, and remediation tools to make data AI-matching ready."
+        description="Every issue below is derived from a record in the current dataset: it names the field at fault and the step that would resolve it. Scores come from the deterministic extractor, not from an AI judgement."
         action={
-          <Button variant="outline" onClick={() => {
-            const csv = ["CPSE,SourceCode,RawDescription,IssueType,Severity,Status"].concat(
-              dqRecords.map((r) => `${r.cpse},${r.sourceCode},"${r.rawDescription}",${r.issueType},${r.severity},${r.status}`)
-            ).join("\n");
-            const blob = new Blob([csv], { type: "text/csv" });
-            const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "data-quality-report.csv"; a.click();
-          }}>
+          <Button
+            variant="outline"
+            onClick={() => {
+              const header = "CPSE,SourceCode,RecordType,Field,IssueType,Severity,Status,RecommendedAction";
+              const rows = dqRecords.map((r) =>
+                [
+                  r.cpse,
+                  r.sourceCode,
+                  materials.find((m) => m.id === Math.floor(r.id / 100))?.recordType ?? "",
+                  `"${r.field ?? ""}"`,
+                  r.issueType,
+                  r.severity,
+                  r.status,
+                  `"${(r.recommendedAction ?? "").replace(/"/g, "'")}"`,
+                ].join(","),
+              );
+              const blob = new Blob([[header, ...rows].join("\n")], { type: "text/csv" });
+              const a = document.createElement("a");
+              a.href = URL.createObjectURL(blob);
+              a.download = "data-quality-report.csv";
+              a.click();
+            }}
+          >
             <Download className="h-4 w-4" /> Download report
           </Button>
         }
       />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Card className="p-5"><p className="text-sm text-muted-foreground">Records needing attention</p><p className="text-2xl font-semibold">{openCount}</p></Card>
-        <Card className="p-5"><p className="text-sm text-muted-foreground">Errors (blocking)</p><p className="text-2xl font-semibold text-destructive">{errorCount}</p></Card>
-        <Card className="p-5"><p className="text-sm text-muted-foreground">Data-quality score</p><p className={`text-2xl font-semibold ${dqScore >= 70 ? "text-success" : "text-warning"}`}>{dqScore}%</p></Card>
+        <Card className="p-5">
+          <p className="text-sm text-muted-foreground">Open issues</p>
+          <p className="text-2xl font-semibold">{openCount}</p>
+          <p className="text-xs text-muted-foreground">across {materials.length} ingested records</p>
+        </Card>
+        <Card className="p-5">
+          <p className="text-sm text-muted-foreground">Errors (blocking)</p>
+          <p className="text-2xl font-semibold text-destructive">{errorCount}</p>
+          <p className="text-xs text-muted-foreground">record cannot be compared without a code and description</p>
+        </Card>
+        <Card className="p-5">
+          <p className="text-sm text-muted-foreground">Remediated this session</p>
+          <p className="text-2xl font-semibold text-success">{remediatedCount}</p>
+          <p className="text-xs text-muted-foreground">corrections re-fed into extraction and matching</p>
+        </Card>
       </div>
 
       <Card className="mb-4 mt-6 p-4">
         <div className="relative mb-3">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input className="pl-9" placeholder="Search records..." value={query} onChange={(e) => setQuery(e.target.value)} />
+          <Input
+            className="pl-9"
+            placeholder="Search descriptions, codes or fields..."
+            value={query}
+            onChange={(e) => { setQuery(e.target.value); setPage(0); }}
+          />
         </div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Select value={cpse} onChange={(e) => { setCpse(e.target.value); setPage(0); }}><option value="ALL">All CPSE</option>{cpseOptions.map((c) => <option key={c}>{c}</option>)}</Select>
-          <Select value={issue} onChange={(e) => { setIssue(e.target.value); setPage(0); }}><option value="ALL">All issue types</option>{issueOptions.map((c) => <option key={c}>{humanize(c)}</option>)}</Select>
-          <Select value={sev} onChange={(e) => { setSev(e.target.value); setPage(0); }}><option value="ALL">All severity</option><option value="ERROR">Error</option><option value="WARNING">Warning</option></Select>
-          <Select value={status} onChange={(e) => { setStatus(e.target.value); setPage(0); }}><option value="ALL">All status</option><option value="OPEN">Open</option><option value="REMEDIATED">Remediated</option><option value="REVIEW">In review</option></Select>
+          <Select value={cpse} onChange={(e) => { setCpse(e.target.value); setPage(0); }}>
+            <option value="ALL">All source organisations</option>
+            {cpseOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+          </Select>
+          <Select value={issue} onChange={(e) => { setIssue(e.target.value); setPage(0); }}>
+            <option value="ALL">All issue types</option>
+            {issueOptions.map((c) => <option key={c} value={c}>{humanize(c)}</option>)}
+          </Select>
+          <Select value={sev} onChange={(e) => { setSev(e.target.value); setPage(0); }}>
+            <option value="ALL">All severities</option>
+            <option value="ERROR">Error</option>
+            <option value="WARNING">Warning</option>
+          </Select>
+          <Select value={status} onChange={(e) => { setStatus(e.target.value); setPage(0); }}>
+            <option value="OPEN">Open</option>
+            <option value="REMEDIATED">Remediated</option>
+            <option value="REVIEW">In review</option>
+            <option value="ALL">All status</option>
+          </Select>
         </div>
       </Card>
 
       {filtered.length === 0 ? (
-        <EmptyState icon={<ShieldCheck className="h-10 w-10 text-muted-foreground" />} title="No records match" description="Adjust filters or search." />
+        <EmptyState
+          icon={<ShieldCheck className="h-10 w-10 text-muted-foreground" />}
+          title="No issues in this view"
+          description="Adjust the filters, or note that a fully clean dataset still shows no open issues by definition."
+        />
       ) : (
         <Card>
           <CardContent className="p-0">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b p-3">
-              <span className="text-sm text-muted-foreground">{filtered.length} records</span>
+              <span className="text-sm text-muted-foreground">{filtered.length} issues</span>
               <div className="flex gap-2">
-                <Button variant="success" size="sm" onClick={() => sendToAi(filtered.map((r) => r.id))}><Sparkles className="h-4 w-4" /> Send remediated to AI</Button>
-                <Button variant="outline" size="sm" onClick={() => { setStatus("ALL"); setCpse("ALL"); setIssue("ALL"); setSev("ALL"); setQuery(""); }}><FilterX className="h-4 w-4" /> Reset</Button>
+                <Button
+                  variant="success"
+                  size="sm"
+                  disabled={!pageHasRemediated}
+                  onClick={() => sendToMatching(pageItems.filter((r) => r.status === "REMEDIATED").map((r) => r.id))}
+                >
+                  <Sparkles className="h-4 w-4" /> Re-run matching on remediated
+                </Button>
+                <Button variant="outline" size="sm" onClick={resetFilters}>
+                  <FilterX className="h-4 w-4" /> Reset
+                </Button>
               </div>
             </div>
             <Table>
               <THead>
                 <TR>
-                  <TH>CPSE</TH>
                   <TH>Source code</TH>
+                  <TH>Field at fault</TH>
                   <TH>Raw description</TH>
-                  <TH>Extracted / issue</TH>
-                  <TH>DNA status</TH>
-                  <TH>Remediation</TH>
-                  <TH>Issue type</TH>
+                  <TH>Recommended action</TH>
+                  <TH>DNA</TH>
                   <TH>Severity</TH>
                   <TH>Status</TH>
-                  <TH>Last updated</TH>
                   <TH className="text-right">Action</TH>
                 </TR>
               </THead>
               <TBody>
                 {pageItems.map((r) => (
                   <TR key={r.id}>
-                    <TD><Badge>{r.cpse}</Badge></TD>
-                    <TD className="font-mono text-sm">{r.sourceCode}</TD>
-                    <TD className="max-w-[200px] text-sm">{r.rawDescription}</TD>
-                    <TD className="max-w-[160px] text-sm text-muted-foreground">{r.extractedDescription}</TD>
-                    <TD><Badge tone={r.dnaStatus === "COMPLETE" ? "success" : "warning"}>{r.dnaStatus}</Badge></TD>
-                    <TD>{r.remediationRequired ? <Badge tone="warning">Required</Badge> : <Badge tone="success">None</Badge>}</TD>
-                    <TD className="text-sm">{humanize(r.issueType)}</TD>
+                    <TD>
+                      <p className="font-mono text-sm">{r.sourceCode || "—"}</p>
+                      <p className="text-xs text-muted-foreground">{r.cpse}</p>
+                    </TD>
+                    <TD>
+                      <p className="text-sm font-medium">{r.field ?? "—"}</p>
+                      <p className="text-xs text-muted-foreground">{humanize(r.issueType)}</p>
+                    </TD>
+                    <TD className="max-w-[200px] text-sm">
+                      {r.rawDescription || <span className="text-muted-foreground">missing</span>}
+                    </TD>
+                    <TD className="max-w-[280px] text-sm text-muted-foreground">
+                      {r.recommendedAction ?? "—"}
+                    </TD>
+                    <TD><Badge tone={r.dnaStatus === "COMPLETE" ? "success" : r.dnaStatus === "PARTIAL" ? "warning" : "danger"}>{r.dnaStatus}</Badge></TD>
                     <TD><Badge tone={sevTone(r.severity)}>{r.severity}</Badge></TD>
-                    <TD><Badge tone={r.status === "REMEDIATED" ? "success" : r.status === "REVIEW" ? "info" : "warning"}>{r.status}</Badge></TD>
-                    <TD className="whitespace-nowrap text-xs text-muted-foreground">{new Date(r.lastUpdated).toLocaleDateString()}</TD>
-                    <TD className="text-right"><Button variant="outline" size="sm" onClick={() => setInspecting(r)}>Inspect / Remediate</Button></TD>
+                    <TD>
+                      <Badge tone={r.status === "REMEDIATED" ? "success" : r.status === "REVIEW" ? "info" : "warning"}>
+                        {r.status}
+                      </Badge>
+                    </TD>
+                    <TD className="text-right">
+                      <Button variant="outline" size="sm" onClick={() => setInspecting(r)}>
+                        Inspect / Remediate
+                      </Button>
+                    </TD>
                   </TR>
                 ))}
               </TBody>
@@ -142,45 +234,99 @@ export default function DataQuality() {
         </Card>
       )}
 
-      {inspecting && <RemediateDialog record={inspecting} onClose={() => setInspecting(null)} onSave={(patch) => { remediateDq(inspecting.id, patch); toast("success", "Record remediated", `${inspecting.sourceCode} marked remediated and data-quality metrics updated.`); setInspecting(null); }} onSendToAi={() => { remediateDq(inspecting.id, {}); sendToAi([inspecting.id]); setInspecting(null); }} />}
+      {inspecting && (
+        <RemediateDialog
+          record={inspecting}
+          onClose={() => setInspecting(null)}
+          onSave={(patch) => {
+            remediateDq(inspecting.id, patch);
+            toast(
+              "success",
+              "Record remediated",
+              `${inspecting.sourceCode} updated. The corrected wording is now what extraction and matching read; the raw source text is unchanged.`,
+            );
+            setInspecting(null);
+          }}
+          onSendToMatching={() => {
+            remediateDq(inspecting.id, {});
+            sendToMatching([inspecting.id]);
+            setInspecting(null);
+          }}
+        />
+      )}
     </div>
   );
 }
 
-function RemediateDialog({ record, onClose, onSave, onSendToAi }: { record: DqRecord; onClose: () => void; onSave: (p: Partial<DqRecord>) => void; onSendToAi: () => void }) {
+function RemediateDialog({
+  record, onClose, onSave, onSendToMatching,
+}: {
+  record: DqRecord;
+  onClose: () => void;
+  onSave: (p: Partial<DqRecord>) => void;
+  onSendToMatching: () => void;
+}) {
+  const { materials } = useProto();
   const [extracted, setExtracted] = useState(record.extractedDescription);
   const [sourceCode, setSourceCode] = useState(record.sourceCode);
   const [dnaStatus, setDnaStatus] = useState(record.dnaStatus);
 
+  const source = materials.find((m) => m.id === Math.floor(record.id / 100));
+  const alreadyRemediated = record.status === "REMEDIATED";
+
   return (
-    <Modal open onClose={onClose} title={`Remediate record ${record.sourceCode}`} size="md">
+    <Modal open onClose={onClose} title={`Inspect ${record.sourceCode || "record"}`} size="md">
       <div className="space-y-4 text-sm">
         <div className="rounded-md border bg-muted/30 p-3">
-          <p className="text-xs text-muted-foreground">Raw description</p>
-          <p>{record.rawDescription}</p>
-          <p className="mt-1 text-xs text-muted-foreground">CPSE: {record.cpse} · Issue: {humanize(record.issueType)} · Severity: <Badge tone={sevTone(record.severity)}>{record.severity}</Badge></p>
+          <p className="text-xs text-muted-foreground">Raw source text (read-only)</p>
+          <p>{record.rawDescription || "— missing —"}</p>
+          <p className="mt-2 text-xs text-muted-foreground">
+            {record.cpse}
+            {source?.origin && <> · <Badge tone={source.origin === "LIVE" ? "success" : source.origin === "REFERENCE" ? "info" : "warning"}>{source.origin}</Badge></>}
+            {source?.itemLevel === false && <> · notice level</>}
+          </p>
         </div>
+
+        <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
+          <p className="text-xs text-muted-foreground">Issue: {humanize(record.issueType)} on “{record.field ?? "record"}”</p>
+          <p className="mt-1">{record.recommendedAction}</p>
+        </div>
+
+        {alreadyRemediated && (
+          <p className="rounded-md border border-success/40 bg-success/5 p-2 text-xs text-success">
+            Already remediated {new Date(record.lastUpdated).toLocaleString()}. Further edits update the record again.
+          </p>
+        )}
+
         <div className="space-y-1.5">
           <label className="text-sm font-medium">Corrected source code</label>
           <Input value={sourceCode} onChange={(e) => setSourceCode(e.target.value)} />
         </div>
         <div className="space-y-1.5">
-          <label className="text-sm font-medium">Edit extracted description</label>
+          <label className="text-sm font-medium">Normalised description used for matching</label>
           <Textarea value={extracted} onChange={(e) => setExtracted(e.target.value)} />
+          <p className="text-xs text-muted-foreground">
+            Attributes are re-extracted from this text. The original source wording is never overwritten.
+          </p>
         </div>
         <div className="space-y-1.5">
-          <label className="text-sm font-medium">DNA / normalization status</label>
+          <label className="text-sm font-medium">Extraction status</label>
           <Select value={dnaStatus} onChange={(e) => setDnaStatus(e.target.value)}>
             <option>INCOMPLETE</option>
             <option>PARTIAL</option>
             <option>COMPLETE</option>
           </Select>
         </div>
+
         <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <div className="flex gap-2">
-            <Button variant="success" size="sm" onClick={onSendToAi}><Sparkles className="h-4 w-4" /> Fix & send to AI</Button>
-            <Button onClick={() => onSave({ extractedDescription: extracted, sourceCode, dnaStatus })}><CheckCircle2 className="h-4 w-4" /> Mark remediated</Button>
+            <Button variant="success" size="sm" onClick={onSendToMatching}>
+              <Sparkles className="h-4 w-4" /> Save and re-run matching
+            </Button>
+            <Button onClick={() => onSave({ extractedDescription: extracted, sourceCode, dnaStatus })}>
+              <CheckCircle2 className="h-4 w-4" /> Save only
+            </Button>
           </div>
         </div>
       </div>
